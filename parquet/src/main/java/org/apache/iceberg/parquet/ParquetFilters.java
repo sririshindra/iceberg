@@ -19,6 +19,7 @@
 package org.apache.iceberg.parquet;
 
 import java.nio.ByteBuffer;
+import java.util.Set;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.BoundPredicate;
 import org.apache.iceberg.expressions.BoundReference;
@@ -128,11 +129,14 @@ class ParquetFilters {
       Operation op = pred.op();
       BoundReference<T> ref = (BoundReference<T>) pred.term();
       String path = schema.idToAlias(ref.fieldId());
-      Literal<T> lit;
+      Literal<T> lit = null;
+      Set<T> litSet = null;
       if (pred.isUnaryPredicate()) {
         lit = null;
       } else if (pred.isLiteralPredicate()) {
         lit = pred.asLiteralPredicate().literal();
+      } else if (pred.isSetPredicate()) {
+        litSet = pred.asSetPredicate().asSetPredicate().literalSet();
       } else {
         throw new UnsupportedOperationException("Cannot convert to Parquet filter: " + pred);
       }
@@ -170,21 +174,21 @@ class ParquetFilters {
           break;
         case INTEGER:
         case DATE:
-          return pred(op, FilterApi.intColumn(path), getParquetPrimitive(lit));
+          return pred(op, FilterApi.intColumn(path), getParquetPrimitive(lit), litSet);
         case LONG:
         case TIME:
         case TIMESTAMP:
-          return pred(op, FilterApi.longColumn(path), getParquetPrimitive(lit));
+          return pred(op, FilterApi.longColumn(path), getParquetPrimitive(lit), litSet);
         case FLOAT:
-          return pred(op, FilterApi.floatColumn(path), getParquetPrimitive(lit));
+          return pred(op, FilterApi.floatColumn(path), getParquetPrimitive(lit), litSet);
         case DOUBLE:
-          return pred(op, FilterApi.doubleColumn(path), getParquetPrimitive(lit));
+          return pred(op, FilterApi.doubleColumn(path), getParquetPrimitive(lit), litSet);
         case STRING:
         case UUID:
         case FIXED:
         case BINARY:
         case DECIMAL:
-          return pred(op, FilterApi.binaryColumn(path), getParquetPrimitive(lit));
+          return pred(op, FilterApi.binaryColumn(path), getParquetPrimitive(lit), litSet);
       }
 
       throw new UnsupportedOperationException(errMsg);
@@ -253,7 +257,7 @@ class ParquetFilters {
 
   @SuppressWarnings("checkstyle:MethodTypeParameterName")
   private static <C extends Comparable<C>, COL extends Operators.Column<C> & Operators.SupportsLtGt>
-      FilterPredicate pred(Operation op, COL col, C value) {
+      FilterPredicate pred(Operation op, COL col, C value, Set litSet) {
     switch (op) {
       case IS_NULL:
         return FilterApi.eq(col, null);
@@ -287,6 +291,12 @@ class ParquetFilters {
         return FilterApi.lt(col, value);
       case LT_EQ:
         return FilterApi.ltEq(col, value);
+      case IN:
+        System.out.println("Entered line 295");
+        return FilterApi.in(col, litSet);
+      case NOT_IN:
+        System.out.println("Entered line 298");
+        return FilterApi.notIn(col, litSet);
       default:
         throw new UnsupportedOperationException("Unsupported predicate operation: " + op);
     }
